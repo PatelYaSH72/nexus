@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Design tokens ─────────────────────────────────────────────────────── */
+:root {
+  /* Dark base (Hero / Navbar / Workspace) */
+  --base:        #090C08;
+  --surface:     #12160F;
+  --border-dark: rgba(255, 255, 255, 0.08);
+  --text-light:  #F5F6F1;
+  --muted-light: rgba(245, 246, 241, 0.55);
+
+  /* Accent — lime/olive green */
+  --accent:       #B7D96B;
+  --accent-dark:  #6E8F3F;
+  --accent-pale:  rgba(183, 217, 107, 0.10);
+  --accent-glow:  rgba(183, 217, 107, 0.22);
+  --accent-ink:   #0D110B; /* text/icon color placed ON TOP of the accent chip */
+
+  /* Light base (About / CTA / Footer) */
+  --cream:      #FAFAF8;
+  --ink:        #1B1A17;
+  --ink-muted:  rgba(27, 26, 23, 0.55);
+
+  --font: var(--font-inter, 'Inter', system-ui, sans-serif);
+}
+
+/* ─── Reset / base ───────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font);
+  background-color: var(--cream);
+  color: var(--ink);
+  overflow-x: hidden;
+}
+
+/* ─── Keyframe animations ────────────────────────────────────────────────── */
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-10px); }
+}
+
+.animate-float { animation: float 4s ease-in-out infinite; }
+
+/* ─── Hero gradient blob background ─────────────────────────────────────── */
+/*
+   Soft multi-stop mesh gradient on the cream base.
+   Multiple overlapping radial blobs create a diffuse "aurora" effect
+   with enough opacity for dark text to remain readable on top.
+*/
+.hero-bg {
+  background-color: var(--cream);
+  background-image:
+    /* large top-center teal blob */
+    radial-gradient(ellipse 80% 55% at 50% 0%,
+      rgba(43, 187, 164, 0.13) 0%,
+      rgba(43, 187, 164, 0.06) 45%,
+      transparent 72%),
+    /* right-side warm blob */
+    radial-gradient(ellipse 50% 60% at 85% 30%,
+      rgba(100, 210, 190, 0.09) 0%,
+      transparent 60%),
+    /* left-side accent blob */
+    radial-gradient(ellipse 45% 50% at 10% 60%,
+      rgba(43, 187, 164, 0.07) 0%,
+      transparent 55%),
+    /* bottom warm cream lift */
+    radial-gradient(ellipse 90% 40% at 50% 105%,
+      rgba(230, 245, 242, 0.8) 0%,
+      transparent 70%);
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--cream-2); }
+::-webkit-scrollbar-thumb { background: var(--cream-3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--mint); }
+
+/* ─── Selection ─────────────────────────────────────────────────────────── */
+::selection { background: rgba(43, 187, 164, 0.18); color: var(--ink); }
+
+/* ─── Utility: section full-bleed centering ─────────────────────────────── */
+.section-shell {
+  width: 100%;
+  min-height: 100svh;   /* full viewport height per section */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
