@@ -189,7 +189,6 @@ export async function deleteDocument(id: string | number): Promise<void> {
     const data = await res.json().catch(() => ({}));
     const errorMsg =
       (data as { detail?: string; message?: string; error?: string }).detail ||
-      (data as { detail?: string; message?: string; error?: string }).message ||
       (data as { detail?: string; message?: string; error?: string }).error ||
       `Delete failed (${res.status})`;
     throw new Error(errorMsg);
@@ -246,6 +245,70 @@ export async function uploadDocument(
   }
 
   return data;
+}
+
+export interface DocumentChunk {
+  parent_id: string;
+  page: number;
+  text: string;
+}
+
+export interface DocumentDetail {
+  id: number | string;
+  filename: string;
+  file_size?: number;
+  total_pages?: number;
+  total_parent_chunks?: number;
+  status: string;
+  error_message?: string | null;
+  created_at?: string;
+}
+
+export interface DocumentChunksResponse {
+  document: DocumentDetail;
+  chunks: DocumentChunk[];
+}
+
+/** Get Document Chunks API call */
+export async function getDocumentChunks(
+  id: string | number
+): Promise<DocumentChunksResponse> {
+  const token = getTokenCookie();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/documents/${id}/chunks`, {
+    method: "GET",
+    headers,
+  });
+
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
+  }
+
+  if (res.status === 404) {
+    throw new Error("Document not found");
+  }
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const errorMsg =
+      (data as { detail?: string; message?: string; error?: string }).detail ||
+      (data as { detail?: string; message?: string; error?: string }).message ||
+      (data as { detail?: string; message?: string; error?: string }).error ||
+      `Failed to fetch document chunks (${res.status})`;
+    throw new Error(errorMsg);
+  }
+
+  return data as DocumentChunksResponse;
 }
 
 /**
