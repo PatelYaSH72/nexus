@@ -1,11 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { DynamicIcon } from "@/lib/icon";
-
-const DEFAULT_SYSTEM_PROMPT =
-  "You are a helpful assistant that answers questions strictly based on the provided document context. Always cite the source page when giving an answer. If the answer isn't in the documents, say so clearly instead of guessing.";
+import {
+  getSettings,
+  updateSettings,
+  resetSettings,
+  type SettingsData,
+  type UpdateSettingsPayload,
+} from "@/lib/api";
 
 const containerVariants = {
   hidden: {},
@@ -16,134 +20,320 @@ const itemVariants = {
   visible: { opacity: 1, y: 0 },
 };
 
+function formatLastUpdated(dateStr?: string): string {
+  if (!dateStr) return "";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "";
+    const datePart = d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+    const timePart = d.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    return `${datePart}, ${timePart}`;
+  } catch {
+    return "";
+  }
+}
+
 export default function SettingsPage() {
-  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
-  const [savedPrompt, setSavedPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
-  const [semanticSearch, setSemanticSearch] = useState(true);
-  const [keywordSearch, setKeywordSearch] = useState(true);
-  const [toggleError, setToggleError] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const isDirty = systemPrompt !== savedPrompt;
+  const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
-  const handleSave = () => {
-    setSavedPrompt(systemPrompt);
-    setSaveStatus("saved");
-    setTimeout(() => setSaveStatus("idle"), 1800);
+  const [form, setForm] = useState<SettingsData | null>(null);
+  const [original, setOriginal] = useState<SettingsData | null>(null);
+
+  const [toggleError, setToggleError] = useState<string | null>(null);
+
+  const fetchSettingsData = async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const data = await getSettings();
+      setForm(data);
+      setOriginal(data);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setLoadError(err.message);
+      } else {
+        setLoadError("Failed to load settings.");
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleReset = () => {
-    setSystemPrompt(DEFAULT_SYSTEM_PROMPT);
-    setSavedPrompt(DEFAULT_SYSTEM_PROMPT);
-  };
+  useEffect(() => {
+    fetchSettingsData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
+        <DynamicIcon name="Loader2" size={28} className="animate-spin text-[#B7D96B]" />
+        <p className="muted text-sm font-medium">Loading settings...</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center px-4">
+        <div className="w-12 h-12 rounded-xl bg-red-500/10 flex items-center justify-center text-red-400">
+          <DynamicIcon name="AlertCircle" size={24} />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold text-red-400">Failed to load settings</h2>
+          <p className="muted text-xs mt-1">{loadError}</p>
+        </div>
+        <button
+          onClick={fetchSettingsData}
+          className="accent-chip px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (!form || !original) return null;
+
+  const isDirty =
+    form.system_prompt !== original.system_prompt ||
+    form.semantic_search_enabled !== original.semantic_search_enabled ||
+    form.keyword_search_enabled !== original.keyword_search_enabled ||
+    form.reranker_model !== original.reranker_model ||
+    form.llm_model !== original.llm_model;
+
+  const promptValid =
+    form.system_prompt.trim().length > 0 && form.system_prompt.length <= 8000;
+
+  const canSave = isDirty && promptValid && !saving && !resetting;
 
   const handleToggle = (which: "semantic" | "keyword") => {
-    const nextSemantic = which === "semantic" ? !semanticSearch : semanticSearch;
-    const nextKeyword = which === "keyword" ? !keywordSearch : keywordSearch;
+    setToggleError(null);
+    setActionError(null);
+
+    const nextSemantic =
+      which === "semantic" ? !form.semantic_search_enabled : form.semantic_search_enabled;
+    const nextKeyword =
+      which === "keyword" ? !form.keyword_search_enabled : form.keyword_search_enabled;
 
     if (!nextSemantic && !nextKeyword) {
-      setToggleError(true);
+      setToggleError("Kam se kam ek search method ON rakho");
       return;
     }
 
-    setToggleError(false);
-    if (which === "semantic") setSemanticSearch(nextSemantic);
-    else setKeywordSearch(nextKeyword);
+    setForm({
+      ...form,
+      semantic_search_enabled: nextSemantic,
+      keyword_search_enabled: nextKeyword,
+    });
+  };
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setActionError(null);
+    setSaveSuccess(null);
+
+    const payload: UpdateSettingsPayload = {
+      system_prompt: form.system_prompt,
+      semantic_search_enabled: form.semantic_search_enabled,
+      keyword_search_enabled: form.keyword_search_enabled,
+      reranker_model: form.reranker_model,
+      llm_model: form.llm_model,
+    };
+
+    try {
+      const updated = await updateSettings(payload);
+      setForm(updated);
+      setOriginal(updated);
+      setSaveSuccess("Saved successfully!");
+      setTimeout(() => setSaveSuccess(null), 3000);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError("Something went wrong");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    const confirmed = window.confirm("Reset all settings to default?");
+    if (!confirmed) return;
+
+    setResetting(true);
+    setActionError(null);
+    setSaveSuccess(null);
+
+    try {
+      const resetData = await resetSettings();
+      setForm(resetData);
+      setOriginal(resetData);
+      setSaveSuccess("Settings reset to defaults!");
+      setTimeout(() => setSaveSuccess(null), 3000);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setActionError(err.message);
+      } else {
+        setActionError("Failed to reset settings");
+      }
+    } finally {
+      setResetting(false);
+    }
   };
 
   return (
-    <div className="section-dark relative min-h-screen w-full overflow-hidden">
+    <div className="section-dark relative min-h-screen w-full overflow-hidden pb-12">
       <div
         aria-hidden
         className="pointer-events-none absolute -top-[200px] -right-[200px] h-[500px] w-[500px] blur-[10px]"
-        style={{ background: "radial-gradient(circle, var(--accent-glow) 0%, transparent 70%)" }}
+        style={{
+          background:
+            "radial-gradient(circle, var(--accent-glow) 0%, transparent 70%)",
+        }}
       />
 
       <motion.div
         initial="hidden"
         animate="visible"
         variants={containerVariants}
-        className="relative mx-auto flex w-full max-w-[760px] flex-col gap-8 px-6 py-10 md:px-0"
+        className="relative mx-auto flex w-full max-w-[780px] flex-col gap-6 px-6 py-10 md:px-0"
       >
-        <motion.h1 variants={itemVariants} className="m-0 text-[28px] font-semibold">
-          Settings
-        </motion.h1>
-
-        {/* System Prompt */}
-        <motion.div
-          variants={itemVariants}
-          className="rounded-2xl p-6"
-          style={{ background: "var(--surface)", border: "1px solid var(--border-dark)" }}
-        >
-          <div className="mb-1 flex items-center justify-between">
-            <h2 className="text-base font-semibold">System Prompt</h2>
-            {saveStatus === "saved" && (
-              <motion.span
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="flex items-center gap-1.5 text-xs"
-                style={{ color: "var(--accent)" }}
-              >
-                <DynamicIcon name="Check" size={13} />
-                Saved
-              </motion.span>
+        <motion.div variants={itemVariants} className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="m-0 text-[28px] font-semibold tracking-tight">Settings</h1>
+            {form.updated_at && (
+              <p className="muted mt-1 text-xs">
+                Last updated: {formatLastUpdated(form.updated_at)}
+              </p>
             )}
           </div>
-          <p className="muted mb-4 text-xs">
-            Controls how the assistant behaves when answering from your documents.
-          </p>
+          {saveSuccess && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
+            >
+              <DynamicIcon name="Check" size={14} />
+              <span>{saveSuccess}</span>
+            </motion.div>
+          )}
+        </motion.div>
+
+        {actionError && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center gap-2 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400 font-medium"
+          >
+            <DynamicIcon name="AlertCircle" size={16} className="shrink-0" />
+            <span>{actionError}</span>
+          </motion.div>
+        )}
+
+        {/* Section 1: System Prompt */}
+        <motion.div
+          variants={itemVariants}
+          className="surface rounded-2xl p-6 flex flex-col gap-3"
+          style={{
+            border: "1px solid var(--border-dark)",
+            boxShadow:
+              "0 0 0 1px rgba(183, 217, 107, 0.03), 0 0 24px rgba(183, 217, 107, 0.04)",
+          }}
+        >
+          <div>
+            <h2 className="text-base font-semibold text-white">System Prompt</h2>
+            <p className="muted mt-0.5 text-xs">
+              Controls how the assistant behaves when answering questions from your documents.
+            </p>
+          </div>
 
           <textarea
-            value={systemPrompt}
-            onChange={(e) => setSystemPrompt(e.target.value)}
-            rows={5}
-            className="w-full resize-none rounded-xl px-4 py-3 text-sm leading-relaxed outline-none"
+            rows={8}
+            value={form.system_prompt}
+            onChange={(e) => setForm({ ...form, system_prompt: e.target.value })}
+            placeholder="Type your system prompt here..."
+            className="w-full resize-y rounded-xl px-4 py-3 text-sm leading-relaxed outline-none transition-colors"
             style={{
               background: "var(--base)",
               border: "1px solid var(--border-dark)",
               color: "var(--text-light)",
             }}
-            onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(183, 217, 107, 0.4)")}
-            onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border-dark)")}
+            onFocus={(e) =>
+              (e.currentTarget.style.borderColor = "rgba(183, 217, 107, 0.4)")
+            }
+            onBlur={(e) =>
+              (e.currentTarget.style.borderColor = "var(--border-dark)")
+            }
           />
 
-          <div className="mt-4 flex items-center justify-end gap-3">
-            <button
-              onClick={handleReset}
-              className="rounded-lg px-4 py-2 text-sm font-medium"
-              style={{ border: "1px solid var(--border-dark)", color: "var(--muted-light)" }}
+          <div className="flex items-center justify-between text-xs">
+            {form.system_prompt.length > 8000 ? (
+              <span className="text-red-400 font-medium">
+                System prompt cannot exceed 8000 characters.
+              </span>
+            ) : form.system_prompt.trim().length === 0 ? (
+              <span className="text-red-400 font-medium">
+                System prompt cannot be empty.
+              </span>
+            ) : (
+              <span className="muted">Max 8000 characters.</span>
+            )}
+            <span
+              className={`font-mono ${
+                form.system_prompt.length > 8000
+                  ? "text-red-400 font-semibold"
+                  : "muted"
+              }`}
             >
-              Reset
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={!isDirty}
-              className="accent-chip rounded-lg px-4 py-2 text-sm font-semibold"
-              style={{ opacity: isDirty ? 1 : 0.5, cursor: isDirty ? "pointer" : "default" }}
-            >
-              Save
-            </button>
+              {form.system_prompt.length} / 8000
+            </span>
           </div>
         </motion.div>
 
-        {/* Retrieval */}
+        {/* Section 2: Retrieval */}
         <motion.div
           variants={itemVariants}
-          className="rounded-2xl p-6"
-          style={{ background: "var(--surface)", border: "1px solid var(--border-dark)" }}
+          className="surface rounded-2xl p-6 flex flex-col gap-4"
+          style={{
+            border: "1px solid var(--border-dark)",
+            boxShadow:
+              "0 0 0 1px rgba(183, 217, 107, 0.03), 0 0 24px rgba(183, 217, 107, 0.04)",
+          }}
         >
-          <h2 className="mb-1 text-base font-semibold">Retrieval</h2>
-          <p className="muted mb-4 text-xs">At least one retrieval method must stay enabled.</p>
+          <div>
+            <h2 className="text-base font-semibold text-white">Retrieval</h2>
+            <p className="muted mt-0.5 text-xs">
+              Configure search methods for finding relevant document chunks. At least one method must stay enabled.
+            </p>
+          </div>
 
-          <div className="flex flex-wrap gap-8">
+          <div className="flex flex-col gap-4 pt-1">
             <ToggleRow
               label="Semantic Search"
-              checked={semanticSearch}
+              description="Uses vector embeddings to match contextual meaning in query and documents."
+              checked={form.semantic_search_enabled}
               onChange={() => handleToggle("semantic")}
             />
+            <div className="h-[1px] bg-white/5" />
             <ToggleRow
               label="Keyword Search"
-              checked={keywordSearch}
+              description="Uses BM25 keyword matching for exact word and phrase queries."
+              checked={form.keyword_search_enabled}
               onChange={() => handleToggle("keyword")}
             />
           </div>
@@ -152,54 +342,154 @@ export default function SettingsPage() {
             <motion.p
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mt-4 flex items-center gap-1.5 text-xs"
-              style={{ color: "#C25B4D" }}
+              className="flex items-center gap-1.5 text-xs text-red-400 font-medium mt-1"
             >
-              <DynamicIcon name="AlertCircle" size={13} />
-              At least one search method must be enabled.
+              <DynamicIcon name="AlertCircle" size={14} />
+              <span>{toggleError}</span>
             </motion.p>
           )}
         </motion.div>
 
-        {/* Models in use */}
+        {/* Section 3: Models */}
         <motion.div
           variants={itemVariants}
-          className="rounded-2xl p-6"
-          style={{ background: "var(--surface)", border: "1px solid var(--border-dark)" }}
+          className="surface rounded-2xl p-6 flex flex-col gap-5"
+          style={{
+            border: "1px solid var(--border-dark)",
+            boxShadow:
+              "0 0 0 1px rgba(183, 217, 107, 0.03), 0 0 24px rgba(183, 217, 107, 0.04)",
+          }}
         >
-          <h2 className="mb-4 text-base font-semibold">Models in use</h2>
-          <div className="flex flex-col gap-3 text-sm">
-            <ModelRow label="Embedding" value="BAAI/bge-small-en-v1.5" />
-            <ModelRow label="Reranker" value="cross-encoder/ms-marco-MiniLM-L-6-v2" />
-            <ModelRow label="LLM" value="Groq — llama-3.3-70b-versatile" />
+          <div>
+            <h2 className="text-base font-semibold text-white">Models in Use</h2>
+            <p className="muted mt-0.5 text-xs">
+              Model parameters for embedding, reranking, and generation.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-4 text-sm">
+            {/* Embedding Model */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold muted">Embedding Model (Read-only)</label>
+              <div
+                className="w-full rounded-xl px-4 py-2.5 text-xs font-mono border flex items-center justify-between"
+                style={{
+                  background: "rgba(255, 255, 255, 0.02)",
+                  borderColor: "var(--border-dark)",
+                  color: "var(--text-light)",
+                }}
+              >
+                <span>{form.embedding_model}</span>
+                <span className="text-[10px] uppercase font-sans font-semibold px-2 py-0.5 rounded bg-white/10 text-white/50">
+                  Fixed
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-400/80 flex items-center gap-1">
+                <DynamicIcon name="Info" size={12} />
+                <span>Badalne se purane documents ki search kharab ho jayegi</span>
+              </p>
+            </div>
+
+            {/* Reranker Model */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold muted">Reranker Model</label>
+              <select
+                value={form.reranker_model}
+                onChange={(e) => setForm({ ...form, reranker_model: e.target.value })}
+                className="w-full rounded-xl px-3.5 py-2 text-xs font-mono outline-none cursor-pointer transition-colors"
+                style={{
+                  background: "var(--base)",
+                  border: "1px solid var(--border-dark)",
+                  color: "var(--text-light)",
+                }}
+              >
+                <option value="cross-encoder/ms-marco-MiniLM-L-6-v2">
+                  cross-encoder/ms-marco-MiniLM-L-6-v2
+                </option>
+              </select>
+            </div>
+
+            {/* LLM Provider */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold muted">LLM Provider (Read-only)</label>
+              <div
+                className="w-full rounded-xl px-4 py-2.5 text-xs font-mono border flex items-center justify-between"
+                style={{
+                  background: "rgba(255, 255, 255, 0.02)",
+                  borderColor: "var(--border-dark)",
+                  color: "var(--text-light)",
+                }}
+              >
+                <span className="capitalize">{form.llm_provider || "groq"}</span>
+                <span className="text-[10px] uppercase font-sans font-semibold px-2 py-0.5 rounded bg-white/10 text-white/50">
+                  Default
+                </span>
+              </div>
+            </div>
+
+            {/* LLM Model */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold muted">LLM Model</label>
+              <select
+                value={form.llm_model}
+                onChange={(e) => setForm({ ...form, llm_model: e.target.value })}
+                className="w-full rounded-xl px-3.5 py-2 text-xs font-mono outline-none cursor-pointer transition-colors"
+                style={{
+                  background: "var(--base)",
+                  border: "1px solid var(--border-dark)",
+                  color: "var(--text-light)",
+                }}
+              >
+                <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+                <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
+              </select>
+            </div>
           </div>
         </motion.div>
 
-        {/* Account */}
+        {/* Action Controls Bar */}
         <motion.div
           variants={itemVariants}
-          className="flex items-center justify-between rounded-2xl p-6"
-          style={{ background: "var(--surface)", border: "1px solid var(--border-dark)" }}
+          className="flex items-center justify-between gap-4 pt-2"
         >
-          <div className="flex items-center gap-3">
-            <div
-              className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold"
-              style={{ background: "var(--accent-pale)", color: "var(--accent)" }}
-            >
-              AK
-            </div>
-            <div>
-              <p className="text-sm font-medium">Alex Kumar</p>
-              <p className="muted text-xs">alex@company.com</p>
-            </div>
-          </div>
+          <button
+            onClick={handleReset}
+            disabled={resetting || saving}
+            className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+            style={{
+              border: "1px solid var(--border-dark)",
+              color: "var(--muted-light)",
+            }}
+          >
+            {resetting ? (
+              <>
+                <DynamicIcon name="Loader2" size={14} className="animate-spin" />
+                <span>Resetting...</span>
+              </>
+            ) : (
+              <>
+                <DynamicIcon name="RotateCcw" size={14} />
+                <span>Reset to defaults</span>
+              </>
+            )}
+          </button>
 
           <button
-            className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium"
-            style={{ border: "1px solid var(--border-dark)", color: "var(--muted-light)" }}
+            onClick={handleSave}
+            disabled={!canSave}
+            className="accent-chip flex items-center gap-2 rounded-xl px-6 py-2.5 text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
-            <DynamicIcon name="LogOut" size={15} />
-            Log out
+            {saving ? (
+              <>
+                <DynamicIcon name="Loader2" size={14} className="animate-spin" />
+                <span>Saving...</span>
+              </>
+            ) : (
+              <>
+                <DynamicIcon name="Save" size={14} />
+                <span>Save changes</span>
+              </>
+            )}
           </button>
         </motion.div>
       </motion.div>
@@ -209,21 +499,28 @@ export default function SettingsPage() {
 
 function ToggleRow({
   label,
+  description,
   checked,
   onChange,
 }: {
   label: string;
+  description: string;
   checked: boolean;
   onChange: () => void;
 }) {
   return (
-    <button onClick={onChange} className="flex items-center gap-3">
-      <span
-        className="relative flex h-6 w-11 flex-shrink-0 items-center rounded-full px-0.5"
+    <div className="flex items-center justify-between gap-4">
+      <div>
+        <p className="text-sm font-medium text-white">{label}</p>
+        <p className="muted text-xs mt-0.5">{description}</p>
+      </div>
+      <button
+        onClick={onChange}
+        type="button"
+        className="relative flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors cursor-pointer"
         style={{
-          background: checked ? "var(--accent)" : "rgba(245, 246, 241, 0.12)",
+          background: checked ? "var(--accent)" : "rgba(255, 255, 255, 0.12)",
           boxShadow: checked ? "0 0 10px rgba(183, 217, 107, 0.35)" : "none",
-          transition: "background 0.2s ease, box-shadow 0.2s ease",
         }}
       >
         <motion.span
@@ -231,23 +528,11 @@ function ToggleRow({
           transition={{ type: "spring", stiffness: 500, damping: 30 }}
           className="h-5 w-5 rounded-full"
           style={{
-            background: checked ? "var(--accent-ink)" : "var(--text-light)",
-            marginLeft: checked ? "auto" : 0,
+            background: checked ? "var(--accent-ink)" : "#ffffff",
+            marginLeft: checked ? "auto" : "0",
           }}
         />
-      </span>
-      <span className="text-sm font-medium">{label}</span>
-    </button>
-  );
-}
-
-function ModelRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="muted">{label}</span>
-      <span className="font-mono text-xs" style={{ color: "var(--text-light)" }}>
-        {value}
-      </span>
+      </button>
     </div>
   );
 }

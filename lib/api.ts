@@ -62,6 +62,28 @@ export function extractTokenFromResponse(data: unknown): string | null {
   return null;
 }
 
+/** Helper to parse FastAPI detail string or array of errors */
+function parseFastApiError(data: unknown, fallback: string): string {
+  if (!data || typeof data !== "object") return fallback;
+  const obj = data as Record<string, unknown>;
+  const detail = obj.detail || obj.message || obj.error;
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((item) => (item && typeof item === "object" && "msg" in item ? String(item.msg) : ""))
+      .filter(Boolean);
+    if (msgs.length > 0) {
+      return msgs.join(", ");
+    }
+  }
+
+  return fallback;
+}
+
 /** Signup API call */
 export async function signupApi(payload: SignupPayload): Promise<AuthResponse> {
   const res = await fetch(`${API_BASE_URL}/api/v1/auth/signup`, {
@@ -75,11 +97,7 @@ export async function signupApi(payload: SignupPayload): Promise<AuthResponse> {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    const errorMsg =
-      (data as { message?: string; detail?: string; error?: string }).message ||
-      (data as { message?: string; detail?: string; error?: string }).detail ||
-      (data as { message?: string; detail?: string; error?: string }).error ||
-      `Signup failed with status ${res.status}`;
+    const errorMsg = parseFastApiError(data, `Signup failed with status ${res.status}`);
     throw new Error(errorMsg);
   }
 
@@ -99,11 +117,7 @@ export async function loginApi(payload: LoginPayload): Promise<AuthResponse> {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    const errorMsg =
-      (data as { message?: string; detail?: string; error?: string }).message ||
-      (data as { message?: string; detail?: string; error?: string }).detail ||
-      (data as { message?: string; detail?: string; error?: string }).error ||
-      `Login failed with status ${res.status}`;
+    const errorMsg = parseFastApiError(data, `Login failed with status ${res.status}`);
     throw new Error(errorMsg);
   }
 
@@ -154,11 +168,7 @@ export async function getDocuments(): Promise<ApiDocument[]> {
   const data = await res.json().catch(() => []);
 
   if (!res.ok) {
-    const errorMsg =
-      (data as { detail?: string; message?: string; error?: string }).detail ||
-      (data as { detail?: string; message?: string; error?: string }).message ||
-      (data as { detail?: string; message?: string; error?: string }).error ||
-      `Failed to fetch documents (${res.status})`;
+    const errorMsg = parseFastApiError(data, `Failed to fetch documents (${res.status})`);
     throw new Error(errorMsg);
   }
 
@@ -187,10 +197,7 @@ export async function deleteDocument(id: string | number): Promise<void> {
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    const errorMsg =
-      (data as { detail?: string; message?: string; error?: string }).detail ||
-      (data as { detail?: string; message?: string; error?: string }).error ||
-      `Delete failed (${res.status})`;
+    const errorMsg = parseFastApiError(data, `Delete failed (${res.status})`);
     throw new Error(errorMsg);
   }
 }
@@ -236,11 +243,7 @@ export async function uploadDocument(
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    const errorMsg =
-      (data as { detail?: string; message?: string; error?: string }).detail ||
-      (data as { detail?: string; message?: string; error?: string }).message ||
-      (data as { detail?: string; message?: string; error?: string }).error ||
-      "Upload failed";
+    const errorMsg = parseFastApiError(data, "Upload failed");
     throw new Error(errorMsg);
   }
 
@@ -300,15 +303,126 @@ export async function getDocumentChunks(
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    const errorMsg =
-      (data as { detail?: string; message?: string; error?: string }).detail ||
-      (data as { detail?: string; message?: string; error?: string }).message ||
-      (data as { detail?: string; message?: string; error?: string }).error ||
-      `Failed to fetch document chunks (${res.status})`;
+    const errorMsg = parseFastApiError(data, `Failed to fetch document chunks (${res.status})`);
     throw new Error(errorMsg);
   }
 
   return data as DocumentChunksResponse;
+}
+
+export interface SettingsData {
+  system_prompt: string;
+  semantic_search_enabled: boolean;
+  keyword_search_enabled: boolean;
+  embedding_model: string;
+  reranker_model: string;
+  llm_provider: string;
+  llm_model: string;
+  updated_at?: string;
+}
+
+export interface UpdateSettingsPayload {
+  system_prompt: string;
+  semantic_search_enabled: boolean;
+  keyword_search_enabled: boolean;
+  reranker_model: string;
+  llm_model: string;
+}
+
+/** Get Settings API call */
+export async function getSettings(): Promise<SettingsData> {
+  const token = getTokenCookie();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/settings`, {
+    method: "GET",
+    headers,
+  });
+
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
+  }
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    throw new Error(parseFastApiError(data, `Failed to load settings (${res.status})`));
+  }
+
+  return data as SettingsData;
+}
+
+/** Update Settings API call */
+export async function updateSettings(
+  payload: UpdateSettingsPayload
+): Promise<SettingsData> {
+  const token = getTokenCookie();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/settings`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
+  }
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    throw new Error(parseFastApiError(data, `Failed to update settings (${res.status})`));
+  }
+
+  return data as SettingsData;
+}
+
+/** Reset Settings API call */
+export async function resetSettings(): Promise<SettingsData> {
+  const token = getTokenCookie();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/settings/reset`, {
+    method: "POST",
+    headers,
+  });
+
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
+  }
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    throw new Error(parseFastApiError(data, `Failed to reset settings (${res.status})`));
+  }
+
+  return data as SettingsData;
 }
 
 /**
