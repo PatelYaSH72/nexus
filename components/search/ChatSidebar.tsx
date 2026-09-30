@@ -2,21 +2,23 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { DynamicIcon } from "@/lib/icon";
-import type { ChatSession } from "@/types/chat";
+import type { Conversation } from "@/lib/api";
 
 export function ChatSidebar({
   collapsed,
-  sessions,
-  activeSessionId,
+  conversations,
+  activeConversationId,
+  isLoading,
   onToggle,
-  onSelectSession,
+  onSelectConversation,
   onNewChat,
 }: {
   collapsed: boolean;
-  sessions: ChatSession[];
-  activeSessionId: string | null;
+  conversations: Conversation[];
+  activeConversationId: string | null;
+  isLoading?: boolean;
   onToggle: () => void;
-  onSelectSession: (id: string) => void;
+  onSelectConversation: (id: string) => void;
   onNewChat: () => void;
 }) {
   return (
@@ -66,16 +68,19 @@ export function ChatSidebar({
       )}
 
       <div className="flex-1 overflow-y-auto px-2 pb-3">
-        {sessions.length === 0 && !collapsed && (
+        {isLoading && !collapsed && (
+          <p className="muted px-3 py-4 text-xs">Loading...</p>
+        )}
+        {!isLoading && conversations.length === 0 && !collapsed && (
           <p className="muted px-3 py-4 text-xs">No conversations yet</p>
         )}
-        {sessions.map((session) => (
+        {conversations.map((conv) => (
           <SessionRow
-            key={session.id}
-            session={session}
-            active={session.id === activeSessionId}
+            key={conv.id}
+            conversation={conv}
+            active={conv.id === activeConversationId}
             collapsed={collapsed}
-            onClick={() => onSelectSession(session.id)}
+            onClick={() => onSelectConversation(conv.id)}
           />
         ))}
       </div>
@@ -84,12 +89,12 @@ export function ChatSidebar({
 }
 
 function SessionRow({
-  session,
+  conversation,
   active,
   collapsed,
   onClick,
 }: {
-  session: ChatSession;
+  conversation: Conversation;
   active: boolean;
   collapsed: boolean;
   onClick: () => void;
@@ -111,7 +116,7 @@ function SessionRow({
           boxShadow: active ? "0 0 5px rgba(183,217,107,0.45)" : "none",
         }}
       />
-      {!collapsed && <span className="truncate">{session.title}</span>}
+      {!collapsed && <span className="truncate">{conversation.title || "Untitled Chat"}</span>}
     </button>
   );
-}
+}

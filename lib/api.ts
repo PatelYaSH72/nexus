@@ -453,3 +453,169 @@ export async function fetchWithAuth(
     headers,
   });
 }
+
+export interface ApiSource {
+  document_id: number;
+  filename: string;
+  page: number;
+  parent_id: string;
+}
+
+export interface ApiMessage {
+  id: number | string;
+  role: "user" | "assistant";
+  content: string;
+  sources?: ApiSource[] | null;
+  created_at?: string;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  created_at?: string;
+  updated_at?: string;
+  messages?: ApiMessage[];
+}
+
+export interface ChatResponse {
+  user_message: ApiMessage;
+  assistant_message: ApiMessage;
+  conversation: Conversation;
+}
+
+/** Get Conversations List API call */
+export async function getConversations(): Promise<Conversation[]> {
+  const token = getTokenCookie();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/conversations`, {
+    method: "GET",
+    headers,
+  });
+
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
+  }
+
+  const data = await res.json().catch(() => []);
+
+  if (!res.ok) {
+    const errorMsg = parseFastApiError(data, `Failed to fetch conversations (${res.status})`);
+    throw new Error(errorMsg);
+  }
+
+  return Array.isArray(data) ? data : [];
+}
+
+/** Get Single Conversation Detail API call */
+export async function getConversation(id: string): Promise<Conversation> {
+  const token = getTokenCookie();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/conversations/${id}`, {
+    method: "GET",
+    headers,
+  });
+
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
+  }
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const errorMsg = parseFastApiError(data, `Failed to fetch conversation (${res.status})`);
+    throw new Error(errorMsg);
+  }
+
+  return data as Conversation;
+}
+
+/** Create Conversation API call */
+export async function createConversation(): Promise<Conversation> {
+  const token = getTokenCookie();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/conversations`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({}),
+  });
+
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
+  }
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const errorMsg = parseFastApiError(data, `Failed to create conversation (${res.status})`);
+    throw new Error(errorMsg);
+  }
+
+  return data as Conversation;
+}
+
+/** Send Message to Conversation API call */
+export async function sendMessage(
+  conversationId: string,
+  content: string
+): Promise<ChatResponse> {
+  const token = getTokenCookie();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(
+    `${API_BASE_URL}/api/v1/conversations/${conversationId}/messages`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ content }),
+    }
+  );
+
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
+  }
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const errorMsg = parseFastApiError(data, "Something went wrong");
+    throw new Error(errorMsg);
+  }
+
+  return data as ChatResponse;
+}
+

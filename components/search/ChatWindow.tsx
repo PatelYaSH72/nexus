@@ -3,42 +3,68 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { DynamicIcon } from "@/lib/icon";
-import type { ChatSession, Message, Citation } from "@/types/chat";
+import type { ApiMessage, ApiSource } from "@/lib/api";
+import type { StreamingMessage } from "@/lib/socket";
 
 export function ChatWindow({
-  session,
-  isStreaming,
+  messages,
+  streamingMessage,
+  activeConversationId,
+  isLoadingChat,
+  isSending,
+  sendError,
   leftCollapsed,
   rightCollapsed,
+  inputRef,
   onToggleLeft,
   onToggleRight,
   onSend,
 }: {
-  session: ChatSession | null;
-  isStreaming: boolean;
+  messages: ApiMessage[];
+  streamingMessage?: StreamingMessage | null;
+  activeConversationId: string | null;
+  isLoadingChat?: boolean;
+  isSending?: boolean;
+  sendError?: string | null;
   leftCollapsed: boolean;
   rightCollapsed: boolean;
+  inputRef?: React.RefObject<HTMLTextAreaElement>;
   onToggleLeft: () => void;
   onToggleRight: () => void;
   onSend: (text: string) => void;
 }) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = useRef(false);
+
+  const handleScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 80;
+    userScrolledUpRef.current = !isAtBottom;
+  };
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [session?.messages]);
+    userScrolledUpRef.current = false;
+  }, [activeConversationId]);
+
+  useEffect(() => {
+    if (scrollRef.current && !userScrolledUpRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, streamingMessage, isSending, isLoadingChat, sendError]);
 
   const handleSend = () => {
-    if (!input.trim() || isStreaming) return;
+    if (!input.trim() || isSending) return;
     onSend(input);
     setInput("");
   };
 
-  const hasMessages = !!session && session.messages.length > 0;
+  const hasMessages = messages.length > 0 || isSending || !!streamingMessage;
 
   return (
     <div className="flex h-full flex-1 flex-col" style={{ background: "var(--base)" }}>
+      {/* Header */}
       <div
         className="flex flex-shrink-0 items-center justify-between px-5 py-4"
         style={{ borderBottom: "1px solid var(--border-dark)" }}
@@ -66,15 +92,70 @@ export function ChatWindow({
         )}
       </div>
 
-      {/* Body: empty state OR messages */}
-      {!hasMessages ? (
+      {/* Body: Loading OR Empty state OR messages */}
+      {isLoadingChat ? (
+        <div className="flex flex-1 items-center justify-center">
+          <p className="muted text-sm flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-[var(--accent)] animate-ping" />
+            Loading chat...
+          </p>
+        </div>
+      ) : !hasMessages ? (
         <EmptyState />
       ) : (
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6">
+        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-6 py-6">
           <div className="mx-auto flex max-w-[720px] flex-col gap-6">
-            {session!.messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
-            ))}
+            {messages.map((msg, index) => {
+              const isLastUserMessage =
+                msg.role === "user" &&
+                index === messages.findLastIndex((m) => m.role === "user");
+
+              return (
+                <div key={msg.id || index} className="flex flex-col">
+                  <MessageBubble message={msg} />
+                  {isLastUserMessage && sendError && (
+                    <div
+                      className="mt-2.5 max-w-[80%] self-end rounded-xl px-3.5 py-2 text-xs leading-relaxed"
+                      style={{
+                        background: "rgba(239, 68, 68, 0.10)",
+                        border: "1px solid rgba(239, 68, 68, 0.25)",
+                        color: "#f87171",
+                      }}
+                    >
+                      {sendError}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {streamingMessage && (
+              <div className="flex items-start gap-3">
+                <Avatar role="assistant" />
+                <div
+                  className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words"
+                  style={{ background: "transparent" }}
+                >
+                  {streamingMessage.statusText && !streamingMessage.content ? (
+                    <LoadingIndicator text={streamingMessage.statusText} />
+                  ) : (
+                    <span>{streamingMessage.content}</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {!streamingMessage && isSending && (
+              <div className="flex items-start gap-3">
+                <Avatar role="assistant" />
+                <div
+                  className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed"
+                  style={{ background: "transparent" }}
+                >
+                  <LoadingIndicator text="Searching documents..." />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -82,19 +163,28 @@ export function ChatWindow({
       {/* Input bar */}
       <div className="flex-shrink-0 px-6 py-4" style={{ borderTop: "1px solid var(--border-dark)" }}>
         <div className="mx-auto flex max-w-[720px] items-center gap-3">
-          <input
+          <textarea
+            ref={inputRef}
+            rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            disabled={isSending}
             placeholder="Ask about your documents..."
-            className="flex-1 rounded-xl px-4 py-3 text-sm outline-none"
+            className="flex-1 rounded-xl px-4 py-3 text-sm outline-none resize-none"
             style={{
               background: "var(--surface)",
               border: "1px solid var(--border-dark)",
               color: "var(--text-light)",
+              opacity: isSending ? 0.6 : 1,
             }}
           />
-          <SendButton onClick={handleSend} disabled={!input.trim() || isStreaming} />
+          <SendButton onClick={handleSend} disabled={!input.trim() || isSending} />
         </div>
       </div>
     </div>
@@ -163,52 +253,54 @@ function SendButton({ onClick, disabled }: { onClick: () => void; disabled?: boo
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message }: { message: ApiMessage }) {
   const isUser = message.role === "user";
+  const hasSources = message.sources && message.sources.length > 0;
 
   return (
     <div className={`flex items-start gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
       <Avatar role={message.role} />
 
       <div
-        className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed"
+        className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words"
         style={
           isUser
             ? { background: "var(--surface)", border: "1px solid var(--border-dark)" }
             : { background: "transparent" }
         }
       >
-        {message.status === "thinking" ? (
-          <LoadingIndicator />
-        ) : (
-          <>
-            <RenderWithCitations text={message.text} citations={message.citations} />
-            {message.status === "streaming" && <StreamingCursor />}
-          </>
+        <span>{message.content}</span>
+
+        {hasSources && (
+          <div className="mt-3 flex flex-wrap gap-1.5 pt-2" style={{ borderTop: "1px solid var(--border-dark)" }}>
+            {message.sources!.map((source, i) => (
+              <SourceChip key={i} source={source} />
+            ))}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-const THINKING_PHRASES = [
-  "Searching your documents...",
-  "Reading relevant pages...",
-  "Matching context...",
-  "Reranking results...",
-  "Drafting an answer...",
-];
+function SourceChip({ source }: { source: ApiSource }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium"
+      style={{
+        background: "var(--accent-pale)",
+        color: "var(--accent)",
+        border: "1px solid rgba(183, 217, 107, 0.2)",
+      }}
+    >
+      <DynamicIcon name="FileText" size={11} />
+      <span>{source.filename}</span>
+      {source.page && <span className="opacity-75">· p.{source.page}</span>}
+    </span>
+  );
+}
 
-function LoadingIndicator() {
-  const [phraseIndex, setPhraseIndex] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setPhraseIndex((i) => (i + 1) % THINKING_PHRASES.length);
-    }, 1400);
-    return () => clearInterval(interval);
-  }, []);
-
+function LoadingIndicator({ text }: { text?: string }) {
   return (
     <div className="flex items-center gap-2.5">
       <div className="flex gap-1">
@@ -216,18 +308,7 @@ function LoadingIndicator() {
         <PulseDot delay={0.15} />
         <PulseDot delay={0.3} />
       </div>
-      <AnimatePresence mode="wait">
-        <motion.span
-          key={phraseIndex}
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -4 }}
-          transition={{ duration: 0.25 }}
-          className="muted text-sm"
-        >
-          {THINKING_PHRASES[phraseIndex]}
-        </motion.span>
-      </AnimatePresence>
+      <span className="muted text-sm">{text || "Searching documents..."}</span>
     </div>
   );
 }
@@ -261,78 +342,5 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
     >
       <DynamicIcon name="Zap" size={14} style={{ color: "var(--accent)" }} />
     </div>
-  );
-}
-
-function StreamingCursor() {
-  return (
-    <motion.span
-      animate={{ opacity: [1, 0.2, 1] }}
-      transition={{ duration: 0.8, repeat: Infinity }}
-      className="ml-0.5 inline-block h-3.5 w-1.5 align-middle"
-      style={{ background: "var(--accent)", borderRadius: 1 }}
-    />
-  );
-}
-
-function RenderWithCitations({ text, citations }: { text: string; citations?: Citation[] }) {
-  if (!citations || citations.length === 0) return <span>{text}</span>;
-
-  const parts = text.split(/(\[\d+\])/g);
-
-  return (
-    <span>
-      {parts.map((part, i) => {
-        const match = part.match(/^\[(\d+)\]$/);
-        if (match) {
-          const citation = citations.find((c) => c.id === Number(match[1]));
-          if (citation) return <CitationChip key={i} citation={citation} />;
-        }
-        return <span key={i}>{part}</span>;
-      })}
-    </span>
-  );
-}
-
-function CitationChip({ citation }: { citation: Citation }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <span className="relative inline-block">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="mx-0.5 inline-flex h-5 w-5 items-center justify-center rounded-md align-middle text-[11px] font-semibold"
-        style={{
-          background: open ? "rgba(183, 217, 107, 0.28)" : "var(--accent-pale)",
-          color: "var(--accent)",
-          boxShadow: open ? "0 0 8px rgba(183,217,107,0.3)" : "none",
-        }}
-      >
-        {citation.id}
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            transition={{ duration: 0.15 }}
-            className="absolute left-0 top-full z-20 mt-2 w-64 rounded-xl px-3.5 py-3 text-xs"
-            style={{
-              background: "var(--surface)",
-              border: "1px solid rgba(183, 217, 107, 0.22)",
-              boxShadow: "0 8px 24px rgba(0,0,0,0.4), 0 0 16px rgba(183,217,107,0.08)",
-            }}
-          >
-            <div className="mb-1.5 flex items-center gap-1.5 font-medium" style={{ color: "var(--accent)" }}>
-              <DynamicIcon name="FileText" size={12} />
-              {citation.docName} · p.{citation.page}
-            </div>
-            <p className="muted leading-relaxed">{citation.excerpt}</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </span>
   );
 }
