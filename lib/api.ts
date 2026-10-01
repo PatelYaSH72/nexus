@@ -172,7 +172,16 @@ export async function getDocuments(): Promise<ApiDocument[]> {
     throw new Error(errorMsg);
   }
 
-  return Array.isArray(data) ? data : [];
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.documents)) return obj.documents as ApiDocument[];
+    if (Array.isArray(obj.data)) return obj.data as ApiDocument[];
+    if (Array.isArray(obj.items)) return obj.items as ApiDocument[];
+    if (Array.isArray(obj.results)) return obj.results as ApiDocument[];
+  }
+
+  return [];
 }
 
 /** Delete Document API call */
@@ -583,7 +592,8 @@ export async function createConversation(): Promise<Conversation> {
 /** Send Message to Conversation API call */
 export async function sendMessage(
   conversationId: string,
-  content: string
+  content: string,
+  documentId?: string | null
 ): Promise<ChatResponse> {
   const token = getTokenCookie();
   const headers: Record<string, string> = {
@@ -598,7 +608,7 @@ export async function sendMessage(
     {
       method: "POST",
       headers,
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, document_id: documentId }),
     }
   );
 

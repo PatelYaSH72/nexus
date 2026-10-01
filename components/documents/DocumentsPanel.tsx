@@ -23,17 +23,30 @@ const itemVariants = {
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
 
 const mapBackendDocToItem = (item: ApiDocument): DocumentItem => {
+  const statusStr = String(item.status || "").toLowerCase();
   let statusMapped: DocumentItem["status"] = "processing";
-  if (item.status === "completed") {
+  if (
+    statusStr === "completed" ||
+    statusStr === "ready" ||
+    statusStr === "success" ||
+    statusStr === "done"
+  ) {
     statusMapped = "ready";
-  } else if (item.status === "failed") {
+  } else if (statusStr === "failed" || statusStr === "error") {
     statusMapped = "failed";
   }
 
   let formattedDate = "Sep 29";
-  if (item.created_at) {
+  const rawObj = item as unknown as Record<string, unknown>;
+  const rawDate =
+    item.created_at ||
+    rawObj.updated_at ||
+    rawObj.created_date ||
+    rawObj.timestamp;
+
+  if (rawDate && typeof rawDate === "string") {
     try {
-      const parsed = new Date(item.created_at);
+      const parsed = new Date(rawDate);
       if (!isNaN(parsed.getTime())) {
         formattedDate = parsed.toLocaleDateString("en-US", {
           month: "short",
@@ -45,11 +58,31 @@ const mapBackendDocToItem = (item: ApiDocument): DocumentItem => {
     }
   }
 
+  const docId =
+    item.id ??
+    rawObj._id ??
+    rawObj.document_id ??
+    "";
+  const filename =
+    item.filename ||
+    rawObj.name ||
+    rawObj.original_filename ||
+    rawObj.title ||
+    "document.pdf";
+  const pageCount =
+    typeof item.total_pages === "number"
+      ? item.total_pages
+      : typeof rawObj.pages === "number"
+      ? (rawObj.pages as number)
+      : typeof rawObj.page_count === "number"
+      ? (rawObj.page_count as number)
+      : 0;
+
   return {
-    id: String(item.id),
-    name: item.filename || "document.pdf",
+    id: String(docId),
+    name: String(filename),
     status: statusMapped,
-    pages: typeof item.total_pages === "number" ? item.total_pages : 0,
+    pages: pageCount,
     uploaded: formattedDate,
   };
 };

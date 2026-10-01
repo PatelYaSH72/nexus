@@ -40,7 +40,7 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  "chat:send": (payload: { conversation_id: string; content: string }) => void;
+  "chat:send": (payload: { conversation_id: string; content: string; document_id?: string | null }) => void;
 }
 
 export type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;

@@ -34,6 +34,7 @@ function SearchPageContent() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ApiMessage[]>([]);
   const [streamingMessage, setStreamingMessage] = useState<StreamingMessage | null>(null);
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
 
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
@@ -245,6 +246,7 @@ function SearchPageContent() {
       streamingMessageRef.current = null;
       wasStreamingRef.current = false;
       setSendError(null);
+      setSelectedDocumentId(null);
 
       router.replace(`${pathname}?c=${id}`, { scroll: false });
 
@@ -279,6 +281,7 @@ function SearchPageContent() {
     wasStreamingRef.current = false;
     setMessages([]);
     setSendError(null);
+    setSelectedDocumentId(null);
 
     router.replace(pathname, { scroll: false });
 
@@ -336,10 +339,11 @@ function SearchPageContent() {
           socket.emit("chat:send", {
             conversation_id: targetId,
             content: trimmedContent,
+            document_id: selectedDocumentId,
           });
         } else {
           // REST Fallback flow
-          const response = await sendMessage(targetId, trimmedContent);
+          const response = await sendMessage(targetId, trimmedContent, selectedDocumentId);
 
           if (activeIdRef.current === targetId) {
             setMessages((prev) => {
@@ -365,7 +369,7 @@ function SearchPageContent() {
         wasStreamingRef.current = false;
       }
     },
-    [isSending, pathname, router]
+    [isSending, pathname, router, selectedDocumentId]
   );
 
   return (
@@ -395,7 +399,11 @@ function SearchPageContent() {
         onSend={handleSend}
       />
 
-      <SourcesPanel collapsed={rightCollapsed} onToggle={() => setRightCollapsed((c) => !c)} />
+      <SourcesPanel 
+        collapsed={rightCollapsed} 
+        onToggle={() => setRightCollapsed((c) => !c)}
+        messages={messages}
+      />
     </div>
   );
 }
