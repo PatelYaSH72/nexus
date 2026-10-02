@@ -9,6 +9,7 @@ export interface DocumentItem {
   id: string;
   name: string;
   status: DocStatus;
+  step?: string;
   pages: number;
   uploaded: string;
 }
@@ -36,7 +37,7 @@ export function DocumentRow({
       variants={itemVariants}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className={`grid grid-cols-[1fr_120px_70px_110px_130px] items-center gap-4 rounded-lg px-3 py-3 text-sm transition-all ${
+      className={`grid grid-cols-[1fr_160px_70px_110px_130px] items-center gap-4 rounded-lg px-3 py-3 text-sm transition-all ${
         isDeleting ? "opacity-50 pointer-events-none" : ""
       }`}
       style={{
@@ -49,7 +50,7 @@ export function DocumentRow({
         <DynamicIcon name="FileText" size={15} className="muted flex-shrink-0" />
         <span className="truncate">{doc.name}</span>
       </div>
-      <StatusBadge status={doc.status} />
+      <StatusBadge status={doc.status} step={doc.step} />
       <span className="muted">{doc.pages}</span>
       <span className="muted">{doc.uploaded}</span>
       <div className="flex items-center gap-3 text-xs">

@@ -1,3 +1,8 @@
+"use client";
+
+import { motion } from "framer-motion";
+import { DynamicIcon } from "@/lib/icon";
+
 export type DocStatus = "ready" | "processing" | "failed" | "needs_ocr";
 
 const STATUS_CONFIG: Record<DocStatus, { label: string; color: string; glow: string; bg: string }> = {
@@ -27,18 +32,30 @@ const STATUS_CONFIG: Record<DocStatus, { label: string; color: string; glow: str
   },
 };
 
-export function StatusBadge({ status }: { status: DocStatus }) {
-  const cfg = STATUS_CONFIG[status];
+export function StatusBadge({ status, step }: { status: DocStatus; step?: string }) {
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG.processing;
+  const isProcessing = status === "processing";
+
   return (
-    <span
-      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium"
+    <motion.span
+      layout
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.2 }}
+      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium max-w-[170px] truncate"
       style={{ background: cfg.bg, color: cfg.color }}
     >
-      <span
-        className="h-1.5 w-1.5 rounded-full"
-        style={{ background: cfg.color, boxShadow: `0 0 5px ${cfg.glow}` }}
-      />
-      {cfg.label}
-    </span>
+      {isProcessing ? (
+        <DynamicIcon name="Loader2" size={11} className="animate-spin flex-shrink-0" />
+      ) : (
+        <motion.span
+          animate={isProcessing ? { opacity: [0.4, 1, 0.4] } : { opacity: 1 }}
+          transition={isProcessing ? { repeat: Infinity, duration: 1.2 } : {}}
+          className="h-1.5 w-1.5 rounded-full flex-shrink-0"
+          style={{ background: cfg.color, boxShadow: `0 0 6px ${cfg.glow}` }}
+        />
+      )}
+      <span className="truncate">{step || cfg.label}</span>
+    </motion.span>
   );
 }

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { DynamicIcon } from "@/lib/icon";
 import type { ApiMessage, ApiSource } from "@/lib/api";
 import type { StreamingMessage } from "@/lib/socket";
+import { MarkdownContent } from "./MarkdownContent";
 
 export function ChatWindow({
   messages,
@@ -133,13 +134,13 @@ export function ChatWindow({
               <div className="flex items-start gap-3">
                 <Avatar role="assistant" />
                 <div
-                  className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words"
+                  className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed break-words"
                   style={{ background: "transparent" }}
                 >
                   {streamingMessage.statusText && !streamingMessage.content ? (
                     <LoadingIndicator text={streamingMessage.statusText} />
                   ) : (
-                    <span>{streamingMessage.content}</span>
+                    <MarkdownContent content={streamingMessage.content} />
                   )}
                 </div>
               </div>
@@ -255,30 +256,199 @@ function SendButton({ onClick, disabled }: { onClick: () => void; disabled?: boo
 
 function MessageBubble({ message }: { message: ApiMessage }) {
   const isUser = message.role === "user";
-  const hasSources = message.sources && message.sources.length > 0;
+  const sources = message.sources || [];
+
+  // Separate text sources (chips) from rich sources (table/image previews)
+  const richSources = sources.filter(
+    (s) => s.element_type === "table" || s.element_type === "image" || !!s.image_b64 || !!s.table_html
+  );
+  const textSources = sources.filter(
+    (s) => !richSources.includes(s)
+  );
 
   return (
     <div className={`flex items-start gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
       <Avatar role={message.role} />
 
       <div
-        className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words"
+        className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed break-words"
         style={
           isUser
             ? { background: "var(--surface)", border: "1px solid var(--border-dark)" }
             : { background: "transparent" }
         }
       >
-        <span>{message.content}</span>
+        {/* Message Text */}
+        {isUser ? (
+          <span className="whitespace-pre-wrap">{message.content}</span>
+        ) : (
+          <MarkdownContent content={message.content} />
+        )}
 
-        {hasSources && (
+        {/* Text source chips */}
+        {textSources.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5 pt-2" style={{ borderTop: "1px solid var(--border-dark)" }}>
-            {message.sources!.map((source, i) => (
+            {textSources.map((source, i) => (
               <SourceChip key={i} source={source} />
             ))}
           </div>
         )}
+
+        {/* Rich previews (tables + images) */}
+        {richSources.length > 0 && (
+          <div className="mt-3 flex flex-col gap-3 pt-2" style={{ borderTop: "1px solid var(--border-dark)" }}>
+            <p
+              className="text-[11px] font-semibold uppercase tracking-wide"
+              style={{ color: "var(--muted-light)" }}
+            >
+              Retrieved Context
+            </p>
+            {richSources.map((source, i) =>
+              source.element_type === "table" || source.table_html ? (
+                <TablePreview key={i} source={source} />
+              ) : (
+                <ImagePreview key={i} source={source} />
+              )
+            )}
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+/** Renders a retrieved table (HTML) with styled wrapper */
+function TablePreview({ source }: { source: ApiSource }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{
+        border: "1px solid var(--border-dark)",
+        background: "var(--base)",
+      }}
+    >
+      {/* Header */}
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors hover:opacity-80"
+        style={{ borderBottom: expanded ? "1px solid var(--border-dark)" : "none" }}
+      >
+        <div className="flex items-center gap-2">
+          <DynamicIcon
+            name="Table2"
+            size={13}
+            style={{ color: "var(--accent)" }}
+          />
+          <span
+            className="text-[11px] font-semibold"
+            style={{ color: "var(--accent)" }}
+          >
+            Table · {source.filename}, p.{source.page}
+          </span>
+        </div>
+        <DynamicIcon
+          name={expanded ? "ChevronUp" : "ChevronDown"}
+          size={13}
+          style={{ color: "var(--muted-light)" }}
+        />
+      </button>
+
+      {/* Summary (always visible) */}
+      {source.summary && (
+        <p
+          className="px-3 py-1.5 text-[11px] leading-relaxed"
+          style={{ color: "var(--muted-light)" }}
+        >
+          {source.summary}
+        </p>
+      )}
+
+      {/* Table HTML (toggle) */}
+      {expanded && source.table_html && (
+        <div
+          className="nexus-table-wrap overflow-x-auto px-3 pb-3"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: source.table_html }}
+        />
+      )}
+
+    </div>
+  );
+}
+
+/** Renders a retrieved image (base64) with caption */
+function ImagePreview({ source }: { source: ApiSource }) {
+  if (!source.image_b64) {
+    // Only summary, no image stored
+    return (
+      <div
+        className="rounded-xl px-3 py-2"
+        style={{ border: "1px solid var(--border-dark)", background: "var(--base)" }}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <DynamicIcon name="Image" size={13} style={{ color: "var(--accent)" }} />
+          <span
+            className="text-[11px] font-semibold"
+            style={{ color: "var(--accent)" }}
+          >
+            Figure · {source.filename}, p.{source.page}
+          </span>
+        </div>
+        {source.summary && (
+          <p className="text-[11px] leading-relaxed" style={{ color: "var(--muted-light)" }}>
+            {source.summary}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  const imgSrc = source.image_b64.startsWith("data:")
+    ? source.image_b64
+    : `data:image/jpeg;base64,${source.image_b64}`;
+
+  return (
+    <div
+      className="rounded-xl overflow-hidden"
+      style={{ border: "1px solid var(--border-dark)", background: "var(--base)" }}
+    >
+      {/* Label */}
+      <div
+        className="flex items-center gap-2 px-3 py-2"
+        style={{ borderBottom: "1px solid var(--border-dark)" }}
+      >
+        <DynamicIcon name="Image" size={13} style={{ color: "var(--accent)" }} />
+        <span
+          className="text-[11px] font-semibold"
+          style={{ color: "var(--accent)" }}
+        >
+          Figure · {source.filename}, p.{source.page}
+        </span>
+      </div>
+
+      {/* Image */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={imgSrc}
+        alt={source.summary || "Document image"}
+        className="w-full object-contain"
+        style={{ maxHeight: "320px" }}
+      />
+
+      {/* Caption */}
+      {source.summary && (
+        <p
+          className="px-3 py-1.5 text-[11px] leading-relaxed"
+          style={{
+            color: "var(--muted-light)",
+            borderTop: "1px solid var(--border-dark)",
+          }}
+        >
+          {source.summary}
+        </p>
+      )}
     </div>
   );
 }

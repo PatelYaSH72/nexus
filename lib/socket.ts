@@ -32,11 +32,23 @@ export interface StreamingMessage {
   sources?: ApiSource[] | null;
 }
 
+export interface DocumentStatusPayload {
+  id: string;
+  document_id: number;
+  filename?: string;
+  status: "pending" | "processing" | "ready" | "completed" | "failed";
+  step?: string;
+  pages?: number;
+  chunks?: number;
+  error?: string;
+}
+
 export interface ServerToClientEvents {
   "chat:status": (payload: ChatStatusPayload) => void;
   "chat:token": (payload: ChatTokenPayload) => void;
   "chat:done": (payload: ChatDonePayload) => void;
   "chat:error": (payload: ChatErrorPayload) => void;
+  "document:status": (payload: DocumentStatusPayload) => void;
 }
 
 export interface ClientToServerEvents {

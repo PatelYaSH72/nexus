@@ -3,17 +3,10 @@
 import { useState, useRef, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { motion, type Variants } from "framer-motion";
-import { Zap, Search, Bell, ChevronDown } from "lucide-react";
+import { motion, AnimatePresence, type Variants } from "framer-motion";
+import { Zap, Search, Bell, ChevronDown, LogOut, User, Settings, LayoutDashboard, FileText } from "lucide-react";
 import { workspaceNav } from "@/data/landingContent";
-
-// ── Theme tokens (same brand system as the marketing Navbar/Hero/About) ──
-// base:    #090C08 / #0D110B  — near-black, always-solid here (dashboards
-//          don't need the scroll-scrim trick the marketing navbar uses —
-//          the app is the only thing behind it, so it can just be solid)
-// accent:  #B7D96B  — lime-green, unchanged from the marketing brand
-// border:  rgba(255,255,255,0.08)
-// text:    white at varying opacity
+import { getUserMe, logoutUser, type UserProfile } from "@/lib/api";
 
 const MotionLink = motion(Link);
 
@@ -34,12 +27,24 @@ const itemVariants: Variants = {
 export default function WorkspaceNavbar() {
   const pathname = usePathname();
   const [notifOpen, setNotifOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
 
-  // Cmd+K / Ctrl+K focuses the search input, matching the hint badge shown
-  // inside it. Escape blurs it back out.
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Fetch user details for profile dropdown
+    getUserMe()
+      .then(setUser)
+      .catch(() => {
+        // Silently handle if unauthenticated (middleware will handle redirect)
+      });
+  }, []);
+
+  // Cmd+K / Ctrl+K search hotkey + Click outside close menu
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -48,11 +53,30 @@ export default function WorkspaceNavbar() {
       }
       if (e.key === "Escape") {
         searchInputRef.current?.blur();
+        setMenuOpen(false);
+        setNotifOpen(false);
       }
     };
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
   }, []);
+
+  const handleLogout = () => {
+    logoutUser();
+  };
+
+  const userInitial = user?.name ? user.name[0].toUpperCase() : user?.email ? user.email[0].toUpperCase() : "N";
 
   return (
     <motion.header
@@ -71,9 +95,9 @@ export default function WorkspaceNavbar() {
         <MotionLink
           href="/workspace"
           variants={itemVariants}
-          className="flex items-center gap-2 shrink-0"
+          className="flex items-center gap-2 shrink-0 group"
         >
-          <div className="w-7 h-7 rounded-lg bg-[var(--accent)] flex items-center justify-center">
+          <div className="w-7 h-7 rounded-lg bg-[var(--accent)] flex items-center justify-center transition-transform group-hover:scale-105">
             <Zap size={14} style={{ color: "var(--accent-ink)" }} />
           </div>
           <span className="font-bold text-base tracking-tight text-[var(--text-light)]">
@@ -81,8 +105,7 @@ export default function WorkspaceNavbar() {
           </span>
         </MotionLink>
 
-        {/* Nav links — sliding lime indicator under the active tab, shared
-            layoutId gives the smooth "morph" animation between tabs */}
+        {/* Nav links */}
         <motion.ul variants={itemVariants} className="hidden md:flex items-center gap-1">
           {workspaceNav.links.map((link) => {
             const isActive = pathname === link.href;
@@ -108,7 +131,7 @@ export default function WorkspaceNavbar() {
           })}
         </motion.ul>
 
-        {/* Spacer pushes the utility icons to the right */}
+        {/* Spacer */}
         <div className="flex-1" />
 
         {/* Search */}
@@ -142,25 +165,97 @@ export default function WorkspaceNavbar() {
           variants={itemVariants}
           onClick={() => setNotifOpen((o) => !o)}
           whileTap={{ scale: 0.94 }}
-          className="relative p-2 rounded-lg text-[var(--text-light)]/50 hover:text-[var(--text-light)] hover:bg-[var(--accent-pale)] transition-colors duration-200"
+          className="relative p-2 rounded-lg text-[var(--text-light)]/50 hover:text-[var(--text-light)] hover:bg-[var(--accent-pale)] transition-colors duration-200 cursor-pointer"
           aria-label="Notifications"
         >
           <Bell size={17} />
           <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />
         </motion.button>
 
-        {/* Profile */}
-        <motion.button
-          variants={itemVariants}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.97 }}
-          className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-full border border-[var(--accent)]/15 hover:border-[var(--accent)]/35 transition-colors duration-200"
-        >
-          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--accent-dark)] flex items-center justify-center text-[11px] font-bold text-[var(--accent-ink)]">
-            N
-          </div>
-          <ChevronDown size={13} className="text-[var(--text-light)]/40" />
-        </motion.button>
+        {/* Profile Dropdown Trigger */}
+        <div className="relative" ref={menuRef}>
+          <motion.button
+            variants={itemVariants}
+            onClick={() => setMenuOpen((prev) => !prev)}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.97 }}
+            className="flex items-center gap-2 pl-2 pr-2 py-1 rounded-full border border-[var(--accent)]/20 hover:border-[var(--accent)]/40 bg-white/5 hover:bg-white/10 transition-colors duration-200 cursor-pointer"
+          >
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#B7D96B] to-[#8CAE42] flex items-center justify-center text-[12px] font-bold text-[#0D110B] shadow-sm">
+              {userInitial}
+            </div>
+            <ChevronDown size={13} className={`text-[var(--text-light)]/50 transition-transform duration-200 ${menuOpen ? "rotate-180" : ""}`} />
+          </motion.button>
+
+          {/* Profile Dropdown Menu */}
+          <AnimatePresence>
+            {menuOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+                className="absolute right-0 mt-2 w-64 rounded-2xl bg-[#12160F] border border-white/10 shadow-2xl p-2 z-50 backdrop-blur-2xl"
+              >
+                {/* User Info Header */}
+                <div className="px-3 py-3 border-b border-white/10 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#B7D96B] to-[#8CAE42] flex items-center justify-center text-sm font-bold text-[#0D110B]">
+                    {userInitial}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-white truncate">
+                      {user?.name || "Nexus User"}
+                    </p>
+                    <p className="text-[11px] text-white/50 truncate">
+                      {user?.email || "authenticated"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Navigation Items */}
+                <div className="py-1.5 space-y-0.5">
+                  <Link
+                    href="/workspace"
+                    onClick={() => setMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                  >
+                    <LayoutDashboard size={14} className="text-[#B7D96B]" />
+                    <span>Workspace Overview</span>
+                  </Link>
+
+                  <Link
+                    href="/workspace/documents"
+                    onClick={() => setMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                  >
+                    <FileText size={14} className="text-[#B7D96B]" />
+                    <span>Documents</span>
+                  </Link>
+
+                  <Link
+                    href="/workspace/settings"
+                    onClick={() => setMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                  >
+                    <Settings size={14} className="text-[#B7D96B]" />
+                    <span>Settings</span>
+                  </Link>
+                </div>
+
+                {/* Logout Action */}
+                <div className="pt-1.5 border-t border-white/10">
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
+                  >
+                    <LogOut size={14} />
+                    <span>Log Out</span>
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </motion.nav>
     </motion.header>
   );

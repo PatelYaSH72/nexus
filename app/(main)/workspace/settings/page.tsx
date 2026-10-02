@@ -440,8 +440,9 @@ export default function SettingsPage() {
                   color: "var(--text-light)",
                 }}
               >
-                <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
-                <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
+                <option value="openai/gpt-oss-120b">openai/gpt-oss-120b</option>
+                <option value="openai/gpt-oss-20b">openai/gpt-oss-20b</option>
+                <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b</option>
               </select>
             </div>
           </div>

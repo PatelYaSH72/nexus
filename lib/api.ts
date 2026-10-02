@@ -46,6 +46,13 @@ export function removeTokenCookie() {
   document.cookie = "token=; path=/; max-age=0; SameSite=Lax";
 }
 
+export function handle401() {
+  removeTokenCookie();
+  if (typeof window !== "undefined") {
+    window.location.href = "/login";
+  }
+}
+
 /** Extract JWT token from backend response body regardless of key structure */
 export function extractTokenFromResponse(data: unknown): string | null {
   if (!data) return null;
@@ -101,6 +108,11 @@ export async function signupApi(payload: SignupPayload): Promise<AuthResponse> {
     throw new Error(errorMsg);
   }
 
+  const token = extractTokenFromResponse(data);
+  if (token) {
+    setTokenCookie(token);
+  }
+
   return data;
 }
 
@@ -127,6 +139,44 @@ export async function loginApi(payload: LoginPayload): Promise<AuthResponse> {
   }
 
   return data;
+}
+
+export function logoutUser() {
+  handle401();
+}
+
+export interface UserProfile {
+  id: number;
+  email: string;
+  name?: string | null;
+}
+
+export async function getUserMe(): Promise<UserProfile> {
+  const token = getTokenCookie();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
+    method: "GET",
+    headers,
+  });
+
+  if (res.status === 401) {
+    handle401();
+    throw new Error("Unauthorized");
+  }
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    throw new Error(parseFastApiError(data, `Failed to load user profile (${res.status})`));
+  }
+
+  return data as UserProfile;
 }
 
 export interface ApiDocument {
@@ -159,9 +209,7 @@ export async function getDocuments(): Promise<ApiDocument[]> {
   });
 
   if (res.status === 401) {
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
+    handle401();
     throw new Error("Unauthorized");
   }
 
@@ -198,9 +246,7 @@ export async function deleteDocument(id: string | number): Promise<void> {
   });
 
   if (res.status === 401) {
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
+    handle401();
     throw new Error("Unauthorized");
   }
 
@@ -468,6 +514,11 @@ export interface ApiSource {
   filename: string;
   page: number;
   parent_id: string;
+  // multimodal fields
+  element_type?: "text" | "table" | "image";
+  table_html?: string | null;
+  image_b64?: string | null;
+  summary?: string;
 }
 
 export interface ApiMessage {
@@ -627,5 +678,64 @@ export async function sendMessage(
   }
 
   return data as ChatResponse;
+}
+
+export interface WorkspaceActivityItem {
+  id: string;
+  type: "upload" | "query";
+  title: string;
+  subtitle?: string;
+  timestamp: string;
+  status?: string;
+}
+
+export interface SystemStatusItem {
+  id: string;
+  name: string;
+  status: "online" | "degraded" | "offline";
+  latency: string;
+}
+
+export interface WorkspaceStatsData {
+  total_documents: number;
+  ready_documents: number;
+  processing_documents: number;
+  failed_documents: number;
+  total_conversations: number;
+  total_messages: number;
+  avg_response_time: string;
+  recent_activity: WorkspaceActivityItem[];
+  system_status: SystemStatusItem[];
+}
+
+/** Fetch Real-Time Workspace Stats API call */
+export async function getWorkspaceStats(): Promise<WorkspaceStatsData> {
+  const token = getTokenCookie();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/workspace/stats`, {
+    method: "GET",
+    headers,
+  });
+
+  if (res.status === 401) {
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
+  }
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    throw new Error(parseFastApiError(data, `Failed to load workspace stats (${res.status})`));
+  }
+
+  return data as WorkspaceStatsData;
 }
 

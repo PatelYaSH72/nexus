@@ -8,16 +8,18 @@ export function middleware(request: NextRequest) {
   const isPublicRoute =
     pathname === "/" || pathname === "/login" || pathname === "/signup";
 
-  // If user is NOT logged in and trying to access a protected route
-  if (!token && !isPublicRoute) {
+  const isProtectedRoute = pathname.startsWith("/workspace");
+
+  // If user is NOT logged in and trying to access workspace protected routes
+  if (!token && isProtectedRoute) {
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
   }
 
-  // If user IS logged in and trying to access /login or /signup
+  // If user IS logged in and trying to access /login or /signup, send directly to /workspace
   if (token && (pathname === "/login" || pathname === "/signup")) {
-    const homeUrl = new URL("/", request.url);
-    return NextResponse.redirect(homeUrl);
+    const workspaceUrl = new URL("/workspace", request.url);
+    return NextResponse.redirect(workspaceUrl);
   }
 
   return NextResponse.next();
@@ -25,12 +27,6 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for:
-     * - api routes (/api/*)
-     * - _next static files and images (_next/*)
-     * - favicon.ico and common static file extensions
-     */
     "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)",
   ],
 };

@@ -10,6 +10,7 @@ import {
   deleteDocument,
   type ApiDocument,
 } from "@/lib/api";
+import { getSocket, type DocumentStatusPayload } from "@/lib/socket";
 
 const containerVariants = {
   hidden: {},
@@ -127,6 +128,49 @@ export function DocumentsPanel({ className = "" }: { className?: string }) {
 
   useEffect(() => {
     fetchDocs();
+
+    const socket = getSocket();
+    if (!socket.connected) {
+      socket.connect();
+    }
+
+    const handleDocStatus = (payload: DocumentStatusPayload) => {
+      setDocList((prev) => {
+        const docIdStr = String(payload.id || payload.document_id);
+        const exists = prev.some((d) => d.id === docIdStr);
+
+        let statusMapped: DocumentItem["status"] = "processing";
+        const statusStr = String(payload.status || "").toLowerCase();
+        if (statusStr === "completed" || statusStr === "ready" || statusStr === "success") {
+          statusMapped = "ready";
+        } else if (statusStr === "failed" || statusStr === "error") {
+          statusMapped = "failed";
+        }
+
+        if (exists) {
+          return prev.map((item) => {
+            if (item.id === docIdStr) {
+              return {
+                ...item,
+                status: statusMapped,
+                step: payload.step,
+                pages: payload.pages && payload.pages > 0 ? payload.pages : item.pages,
+              };
+            }
+            return item;
+          });
+        } else {
+          fetchDocs(true);
+          return prev;
+        }
+      });
+    };
+
+    socket.on("document:status", handleDocStatus);
+
+    return () => {
+      socket.off("document:status", handleDocStatus);
+    };
   }, []);
 
   const filtered = docList.filter((d) =>
@@ -289,7 +333,7 @@ export function DocumentsPanel({ className = "" }: { className?: string }) {
         {/* Left: document list */}
         <div className="flex flex-col overflow-y-auto px-6 py-4">
           <div
-            className="muted grid grid-cols-[1fr_120px_70px_110px_130px] gap-4 border-b px-3 pb-3 text-xs"
+            className="muted grid grid-cols-[1fr_160px_70px_110px_130px] gap-4 border-b px-3 pb-3 text-xs"
             style={{ borderColor: "var(--border-dark)" }}
           >
             <span>Name</span>

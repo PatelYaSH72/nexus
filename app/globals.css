@@ -97,3 +97,40 @@ body {
   align-items: center;
   justify-content: center;
 }
+/* ─── Utility: muted text ────────────────────────────────────────────────── */
+.muted { color: var(--muted-light); }
+
+/* ─── Multimodal: retrieved HTML table styling ───────────────────────────── */
+/*
+  Tables rendered via dangerouslySetInnerHTML inside .nexus-table-wrap get
+  consistent dark-mode styling that fits the design system.
+*/
+.nexus-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+.nexus-table-wrap th,
+.nexus-table-wrap td {
+  padding: 5px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-dark);
+  white-space: nowrap;
+}
+
+.nexus-table-wrap thead th {
+  background: rgba(183, 217, 107, 0.08);
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.nexus-table-wrap tr:last-child td {
+  border-bottom: none;
+}
+
+.nexus-table-wrap tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
